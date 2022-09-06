@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<!-- This is the implementation of double pendulum system by Position-Based Dynamics
+    The algorithm refers to the tutorial:
+    https://www.youtube.com/watch?v=XPZEeS70zzU
+    https://github.com/matthias-research/pages/blob/master/tenMinutePhysics/06-pendulumShort.html 	
+    06 Writing a triple pendulum simulation is simple by Matthias Müller - Ten Minute Physics -->
+
+<html>
+
+<head>
+    <title id="title">[utokyo-iscg-2022] Advanced Assignment A2 (Deformable simulation)</title>
+</head>
+
+<body>
+
+    <h1>The implementation of double pendulum system</h1>
+    <canvas id="canvas" width="800" height="600" style="border:3px solid #000000;"></canvas>
+
+    <script>
+        //global parameters
+        var lengths = [0.5, 0.3];
+        var masses = [1.0, 0.5];
+        var numOfPoints = masses.length;
+        var angles = [ 0.5 * Math.PI, Math.PI];
+        var gravity = - 9.8;
+        var dt = 1 / 60.0 ;
+        var numSubSteps = 100;
+        var subStepTime = dt / numSubSteps;
+
+        //setup canvas
+        var canvas = document.getElementById("canvas");
+        var c = canvas.getContext("2d");
+        var canvasOrig = { x : canvas.width / 2, y : canvas.height / 3}; //set the origin
+        var simWidth = 2.0;
+        var scale = canvas.width / simWidth;
+        function get_x(pos) { return canvasOrig.x + pos.x * scale; } //coordinate transformation
+        function get_y(pos) { return canvasOrig.y - pos.y * scale; }
+
+        /*
+        class Pendulum:
+            constructor: initialize the properties of pendulums
+            StartStep: vel += g * dt, prevpos = pos, pos += vel * dt
+            DistanceConstraint: move the particles to satisfy the constraints
+            EndStep: vel = (pos - prevpos) / dt
+        */
+        class Pendulum 
+        {
+            constructor(masses, lengths, angles) 
+            {
+                //index 0: the fixed point, index 1 ~:pendulums
+                this.masses = [0.0];
+                this.lengths = [0.0];
+                this.pos = [ {x:0.0, y:0.0} ];
+                this.prevPos = [ {x:0.0, y:0.0} ];
+                this.vel = [ {x:0.0, y:0.0} ];
+                
+                var x = 0.0, y = 0.0;
+                for (var i = 0; i < numOfPoints; i++) {
+                    this.masses.push(masses[i]);
+                    this.lengths.push(lengths[i]);
+                    this.vel.push({x:0, y:0});
+
+                    //compute the position
+                    x += lengths[i] * Math.sin(angles[i]);
+                    y += lengths[i] * - Math.cos(angles[i]); 
+                    this.pos.push({ x:x, y:y});
+                    this.prevPos.push({ x:x, y:y});
+                }
+            }
+
+            StartStep(dt)
+            {
+                var p = this;
+
+                for (var i = 1; i < numOfPoints + 1; i++) 
+                {
+                    p.vel[i].y += dt * gravity;
+                    p.prevPos[i].x = p.pos[i].x;
+                    p.prevPos[i].y = p.pos[i].y;
+                    p.pos[i].x += p.vel[i].x * dt;
+                    p.pos[i].y += p.vel[i].y * dt;
+                }
+            }
+
+            DistanceConstraint(dt)
+            {
+                var p = this;
+
+                for (var i = 1; i < numOfPoints + 1; i++) 
+                {
+                    var dx = p.pos[i].x - p.pos[i-1].x;
+                    var dy = p.pos[i].y - p.pos[i-1].y;
+                    var d = Math.sqrt(dx * dx + dy * dy);
+
+                    //compute the weight of each pendulum
+                    var w1= 1.0 / p.masses[i - 1];
+                    var w2 =1.0 / p.masses[i];
+                    //masses = 0 -> fixed,weight = 0
+                    if (p.masses[i - 1] == 0) {w1=0.0;}
+                    if (p.masses[i] == 0) {w2=0.0;}
+
+                    var delta_p = (p.lengths[i] - d) / d / (w1 + w2); //coefficient of movement
+
+                    //move the point proportional to the inverse mass
+                    p.pos[i - 1].x -= w1 * delta_p * dx; 
+                    p.pos[i - 1].y -= w1 * delta_p * dy; 
+                    p.pos[i].x += w2 * delta_p * dx; 
+                    p.pos[i].y += w2 * delta_p * dy; 
+                }
+            }
+
+            EndStep(dt)
+            {
+                var p = this;
+                for (var i = 1; i < numOfPoints + 1; i++) 
+                {
+                    p.vel[i].x = (p.pos[i].x - p.prevPos[i].x) / dt;
+                    p.vel[i].y = (p.pos[i].y - p.prevPos[i].y) / dt;
+                }
+            }
+
+            GetPos()
+            {
+                return this.pos;
+            }               
+
+        }
+
+    
+        function simulate() {
+
+            for (var step = 0; step < numSubSteps; step++) 
+            {
+                pendulum.StartStep(subStepTime);
+                pendulum.DistanceConstraint(subStepTime);
+                pendulum.EndStep(subStepTime);
+            }
+                
+        }
+
+        function draw() 
+        {
+            c.fillStyle = "white";
+            c.fillRect(0, 0, canvas.width, canvas.height);
+            //pendulum.draw();
+            var pos= pendulum.GetPos();
+
+            //draw the links
+            c.strokeStyle = "black";
+            c.lineWidth = 5;
+            c.beginPath();
+            c.moveTo(get_x(pos[0]), get_y(pos[0]));
+            for (var i = 1; i < numOfPoints + 1; i++) 
+                c.lineTo( get_x(pos[i]), get_y(pos[i]) );
+            c.stroke();
+
+            //draw the pendulums         
+            c.fillStyle = "red";
+            for (var i = 1; i < numOfPoints + 1; i++) 
+            {
+                var r = 0.05 * Math.sqrt(masses[i-1]);
+                c.beginPath();			
+                c.arc(get_x(pos[i]), get_y(pos[i]), scale * r, 0.0, 2.0 * Math.PI); 
+                c.closePath();
+                c.fill();
+            }
+
+            
+        }
+    
+        function update() {
+            simulate();
+            draw();
+            requestAnimationFrame(update);
+        }
+        
+
+        //main
+        var pendulum = new Pendulum( masses, lengths, angles, gravity);
+        update();	
+
+    </script> 
+
+</body>
+
+
+
+
+</html>
